@@ -1,0 +1,17 @@
+\begin{table*}[!t]
+\centering
+\caption{UDDS dataset: PINN final performance across temperatures.}
+\label{tab:udds_perf}
+\begin{tabular}{lcccc}
+\toprule
+Method -20\°„C & -10\°„C & 0\°„C & 10\°„C \\
+\midrule
+LSTM & 0.0685 & 0.0438 & 0.0512 & 0.0380 \\
+MLP & 11.2541 & 0.0662 & nan & 7.5229 \\
+\midrule
+\multicolumn{5}{l}{\textbf{PINN MSE}} \\
+LSTM & 0.2240 & 0.1806 & 0.1870 & 0.1577 \\
+MLP & 3.2859 & 0.2489 & nan & 2.4997 \\
+\bottomrule
+\end{tabular}
+\end{table*}

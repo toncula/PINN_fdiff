@@ -1,0 +1,10 @@
+
+SOC Prediction Metrics (T = -20буC)
+
+[MLP+PINN]
+MAE: 0.327136
+MSE: 0.161617
+
+[MLP Only]
+MAE: 0.440010
+MSE: 0.197390
