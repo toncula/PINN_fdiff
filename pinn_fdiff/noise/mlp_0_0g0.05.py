@@ -39,7 +39,11 @@ class GaussianNoise(nn.Module):
         return din
 
 class Fsmm(nn.Module):
+<<<<<<<< HEAD:pinn_fdiff/noise/mlp_0_0g0.05.py
     def __init__(self,input_size,hidden_size,gaussian_noise = 0.05):
+========
+    def __init__(self,input_size,hidden_size,gaussian_noise = 0.0):
+>>>>>>>> f920f405c8849aea2d7855a8a98721fdeacd0c79:pinn_fdiff/lamda/mlp_0_0_0.25.py
         super(Fsmm, self).__init__()
         self.mlp = NeuralNet(input_size,hidden_size,1)
         self.Q = nn.Parameter(torch.tensor(2.9),requires_grad=True)
@@ -143,7 +147,11 @@ num_epochs = 100
 input_size = 4
 hidden_size = 32
 learning_rate = 0.001
+<<<<<<<< HEAD:pinn_fdiff/noise/mlp_0_0g0.05.py
 save_dir = 'pinn_fdiff/pinn_change_new_saves g0.05'
+========
+save_dir = 'pinn_fdiff/pinn_change_new_saves lamda0.25'
+>>>>>>>> f920f405c8849aea2d7855a8a98721fdeacd0c79:pinn_fdiff/lamda/mlp_0_0_0.25.py
 save_dir = os.path.join(save_dir)
 setup_seed(seed)
 if not os.path.exists(save_dir):
@@ -194,7 +202,7 @@ for epoch in range(num_epochs):
             x = x.to(device)
             y = y.to(device)
             soc,loss1,loss2= model(x)
-            loss = criterion(soc,y) + torch.mean(torch.square(loss1)) + torch.mean(torch.square(loss2))
+            loss = criterion(soc,y) +0.25* torch.mean(torch.square(loss1)) +0.25* torch.mean(torch.square(loss2))
             loss_need = criterion(soc,y)
             optimizer.zero_grad()
             loss.backward()

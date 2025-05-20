@@ -260,7 +260,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Fsmm(input_size,hidden_size,num_layers)
 model_mlp = LSTM(input_size,hidden_size,num_layers,1,gaussian_noise=0.0)
 
-
 """ -20 deg"""
 
 save_dir = 'pinn_fdiff/picture'
