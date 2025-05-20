@@ -278,7 +278,7 @@ axes.legend()
 plt.ylabel('SOC')
 plt.xlabel('Time (s) T=0°C')
 plt.savefig(
-    os.path.join(save_dir, "soc_pred_-10deg US06_rnn.jpg"),
+    os.path.join(save_dir, "soc_pred_0deg HWEFT_rnn.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -293,13 +293,13 @@ plt.ylabel('SOC error')
 plt.xlabel('Time (s) T=0°C')
 
 plt.savefig(
-    os.path.join(save_dir, "soc_error_-10deg US06_rnn.jpg"),
+    os.path.join(save_dir, "soc_error_0deg HWEFT_rnn.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
 
-np.save("pinn_fdiff/picture/US06_SOC_-10.npy", soc)
-np.save("pinn_fdiff/picture/PINN_RNN_US06_SOC_-10.npy", y_fsmm)
-np.save("pinn_fdiff/picture/RNN_US06_SOC_-10.npy", y_mlp)
-np.save("pinn_fdiff/picture/LOSS_PINN_RNN_US06_SOC_-10.npy", loss_fsmm)
-np.save("pinn_fdiff/picture/LOSS_RNN_US06_SOC_-10.npy", loss_mlp)
+np.save("pinn_fdiff/picture/HWEFT_SOC_0.npy", soc)
+np.save("pinn_fdiff/picture/PINN_RNN_HWEFT_SOC_0.npy", y_fsmm)
+np.save("pinn_fdiff/picture/RNN_HWEFT_SOC_0.npy", y_mlp)
+np.save("pinn_fdiff/picture/LOSS_PINN_RNN_HWEFT_SOC_0.npy", loss_fsmm)
+np.save("pinn_fdiff/picture/LOSS_RNN_HWEFT_SOC_0.npy", loss_mlp)

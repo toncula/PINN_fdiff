@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import matplotlib as mpl
-mpl.use('TkAgg')
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import  time
@@ -140,35 +140,46 @@ class Fsmm(nn.Module):
         time = out[:, :, 3]
 
         for t in range(seq_len):
-            start_idx = max(0, t - self.window + 1)
-            voltage_window = voltage[:, start_idx : t + 1]  # (batch, window_size)
 
-            pad_size = self.window - (t + 1 - start_idx)
-            padded_voltage = torch.cat(
-                [torch.zeros((batch_size, pad_size), device=device), voltage_window],
-                dim=1,
-            )
+            # 电流时刻的极化电压历史
+            # 取已经计算好的 Up_seq 历史值
+            past_Up = Up_seq[:, 0:t]  # shape (batch, valid_window-1)
+            valid_window = past_Up.shape[1] + 1  # 包括当前时刻
 
-            time_window = time[:, start_idx : t + 1]
-            valid_window = t + 1 - start_idx
-            if valid_window > 1:
+            # 计算 pad_size，且不为负
+            pad_size = max(self.window - valid_window + 1, 0)
+            if pad_size > 0:
+                # 前面补零
+                zeros = torch.zeros((batch_size, pad_size), device=device)
+                history_buffer = torch.cat([zeros, past_Up], dim=1)
+            else:
+                # 已经达到 window 长度，直接使用过去的 Up_seq 切片
+                history_buffer = past_Up[:, -self.window :]
+
+            # time 差分用于计算 T_s^alpha
+            time_window = time[:, 0 : t + 1]
+            if time_window.size(1) > 1:
                 time_diff = (time_window[:, -1] - time_window[:, 0]) / (
-                    valid_window - 1
+                    time_window.size(1) - 1
                 )
             else:
                 time_diff = torch.ones(batch_size, device=device)
+            T_s_alpha = time_diff.pow(self.alpha).unsqueeze(-1)
 
-            T_s_alpha = (time_diff**self.alpha).unsqueeze(-1)
-
+            # 分数阶系数 a, b
             a = -T_s_alpha / (self.R1 * self.C1)
-            I_k = out[:, t, 1]
+            I_k = out[:, t, 1]  # 电流
             b = (T_s_alpha / self.C1) * I_k.unsqueeze(-1)
 
+            # 计算分数阶历史累加项
+            # binom_coeffs[1:self.window+1] 长度为 window
             history_sum = torch.einsum(
-                "bw,w->b", padded_voltage, self.binom_coeffs[1 : self.window + 1]
+                "bw,w->b", history_buffer, self.binom_coeffs[1 : self.window + 1]
             ).unsqueeze(-1)
 
+            # 当前电压
             current_voltage = voltage[:, t].unsqueeze(-1)
+            # 更新 Up_seq
             Up_seq[:, t] = (a * current_voltage + b - history_sum).squeeze()
 
         return Up_seq
@@ -256,7 +267,7 @@ if not os.path.exists(save_dir):
      os.mkdir(save_dir)
 
 
-dataset_dir = "data/Panasonic 18650PF Data/-10degC/Drive cycles/"
+dataset_dir = 'data/Panasonic 18650PF Data/-10degC/Drive Cycles/'
 train_files = [
                "06-10-17_11.25 n10degC_Cycle_1_Pan18650PF.mat",
                "06-10-17_18.35 n10degC_Cycle_2_Pan18650PF.mat",
