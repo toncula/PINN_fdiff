@@ -12,18 +12,12 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import matplotlib as mpl
-mpl.use('TkAgg')
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import  time
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def setup_seed(seed):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    torch.backends.cudnn.deterministic = True
 class GaussianNoise(nn.Module):
     def __init__(self, stddev):
         super().__init__()
@@ -33,6 +27,8 @@ class GaussianNoise(nn.Module):
         if self.training:
             return din + torch.autograd.Variable(torch.randn(din.size()) * self.stddev)
         return din
+
+
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, num_classes, gaussian_noise):
         super(RNN, self).__init__()
@@ -135,23 +131,26 @@ class Fsmm(nn.Module):
         time = out[:, :, 3]
 
         for t in range(seq_len):
-            start_idx = max(0, t - self.window + 1)
-            voltage_window = voltage[:, start_idx : t + 1]  # (batch, window_size)
+            
+            past_Up = Up_seq[:,0:t]  # (batch, window_size)
+            valid_window = past_Up.shape[1] + 1
+            pad_size = max(self.window - valid_window + 1, 0)
 
-            pad_size = self.window - (t + 1 - start_idx)
-            padded_voltage = torch.cat(
-                [torch.zeros((batch_size, pad_size), device=device), voltage_window],
-                dim=1,
-            )
 
-            time_window = time[:, start_idx : t + 1]
-            valid_window = t + 1 - start_idx
-            if valid_window > 1:
+            time_window = time[:, 0 : t + 1]
+            if time_window.size(1) > 1:
                 time_diff = (time_window[:, -1] - time_window[:, 0]) / (
-                    valid_window - 1
+                    time_window.size(1) - 1
                 )
             else:
                 time_diff = torch.ones(batch_size, device=device)
+            if pad_size > 0:
+                # 前面补零
+                zeros = torch.zeros((batch_size, pad_size), device=device)
+                history_buffer = torch.cat([zeros, past_Up], dim=1)
+            else:
+                # 已经达到 window 长度，直接使用过去的 Up_seq 切片
+                history_buffer = past_Up[:, -self.window :]
 
             T_s_alpha = (time_diff**self.alpha).unsqueeze(-1)
 
@@ -160,14 +159,13 @@ class Fsmm(nn.Module):
             b = (T_s_alpha / self.C1) * I_k.unsqueeze(-1)
 
             history_sum = torch.einsum(
-                "bw,w->b", padded_voltage, self.binom_coeffs[1 : self.window + 1]
+                "bw,w->b", history_buffer, self.binom_coeffs[1 : self.window + 1]
             ).unsqueeze(-1)
 
             current_voltage = voltage[:, t].unsqueeze(-1)
             Up_seq[:, t] = (a * current_voltage + b - history_sum).squeeze()
 
         return Up_seq
-
 
 class MatDNNDataset(Dataset):
     def __init__(self, root , sequence_length):
@@ -240,14 +238,14 @@ model_mlp = RNN(input_size,hidden_size,num_layers,1,gaussian_noise=0.0)
 save_dir = "pinn_fdiff/picture"
 save_dir = os.path.join(save_dir)
 model = torch.load(
-    "pinn_fdiff/pinn_rnn_saves -10degC US06/model_pinn.pt", weights_only=False
+    "pinn_fdiff/pinn_rnn_saves 0degC/model_pinn.pt", weights_only=False
 ).to(device)
 model_mlp = torch.load(
-    "pinn_fdiff/pinn_rnn_saves -10degC US06/model_rnn.pt", weights_only=False
+    "pinn_fdiff/pinn_rnn_saves 0degC/model_rnn.pt", weights_only=False
 ).to(device)
 
 validation_dataset = MatDNNDataset(
-    "data/Panasonic 18650PF Data/-10degC/Drive Cycles/06-07-17_08.39 n10degC_US06_Pan18650PF.mat",
+    "data/Panasonic 18650PF Data/0degC/Drive cycles/06-02-17_10.43 0degC_HWFET_Pan18650PF.mat",
     sequence_length,
 )
 
@@ -257,6 +255,8 @@ loss_fsmm = list()
 loss_mlp = list()
 y_fsmm = list()
 y_mlp = list()
+model.train()
+model_mlp.train()
 for i,u in enumerate(validation_dataset):
     x,y = u[0].to(device),u[1].to(device)
     soc.append(y.item())
@@ -272,13 +272,13 @@ for i,u in enumerate(validation_dataset):
 y_fsmm,y_mlp = np.array(y_fsmm),np.array(y_mlp)
 fig,axes = plt.subplots(1,1,figsize=(28,20))
 axes.plot(a,soc,color='b',label='Acture SOC')
-axes.plot(a,y_fsmm,color='g',label='RNN')
-axes.plot(a,y_mlp,color='r',label='RNN+PINN')
+axes.plot(a,y_fsmm,color='g',label='RNN+PINN')
+axes.plot(a,y_mlp,color='r',label='RNN')
 axes.legend()
 plt.ylabel('SOC')
 plt.xlabel('Time (s) T=0°C')
 plt.savefig(
-    os.path.join(save_dir, "soc_pred_-10deg US06_rnn.jpg"),
+    os.path.join(save_dir, "soc_pred_0 HWEFT_rnn.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -286,20 +286,20 @@ plt.savefig(
 
 loss_fsmm,loss_mlp = np.array(loss_fsmm),np.array(loss_mlp)
 fig,axes = plt.subplots(1,1,figsize=(28,20))
-axes.plot(a,loss_fsmm,color='g',label='MLP')
-axes.plot(a,loss_mlp,color='r',label='RNN+PINN')
+axes.plot(a,loss_fsmm,color='g',label='RNN+PINN')
+axes.plot(a,loss_mlp,color='r',label='RNN')
 axes.legend()
 plt.ylabel('SOC error')
 plt.xlabel('Time (s) T=0°C')
 
 plt.savefig(
-    os.path.join(save_dir, "soc_error_-10deg US06_rnn.jpg"),
+    os.path.join(save_dir, "soc_error_0 HWEFT_rnn.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
 
-np.save("pinn_fdiff/picture/US06_SOC_-10.npy", soc)
-np.save("pinn_fdiff/picture/PINN_RNN_US06_SOC_-10.npy", y_fsmm)
-np.save("pinn_fdiff/picture/RNN_US06_SOC_-10.npy", y_mlp)
-np.save("pinn_fdiff/picture/LOSS_PINN_RNN_US06_SOC_-10.npy", loss_fsmm)
-np.save("pinn_fdiff/picture/LOSS_RNN_US06_SOC_-10.npy", loss_mlp)
+np.save("pinn_fdiff/picture/HWEFT_SOC_0.npy", soc)
+np.save("pinn_fdiff/picture/PINN_RNN_HWEFT_SOC_0.npy", y_fsmm)
+np.save("pinn_fdiff/picture/RNN_HWEFT_SOC_0.npy", y_mlp)
+np.save("pinn_fdiff/picture/LOSS_PINN_RNN_HWEFT_SOC_0.npy", loss_fsmm)
+np.save("pinn_fdiff/picture/LOSS_RNN_HWEFT_SOC_0.npy", loss_mlp)

@@ -237,7 +237,8 @@ learning_rate = 0.001
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = Fsmm(input_size,hidden_size,num_layers)
 model_mlp = LSTM(input_size,hidden_size,num_layers,1,gaussian_noise=0.0)
-
+if torch.cuda.is_available():
+    _ = torch.zeros(1, device='cuda')  # 显式初始化CUDA上下文
 """ -20 deg"""
 
 save_dir = 'pinn_fdiff/picture'
