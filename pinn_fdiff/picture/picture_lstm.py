@@ -12,11 +12,13 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import matplotlib as mpl
-mpl.use('TkAgg')
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import  time
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if torch.cuda.is_available():
+    _ = torch.zeros(1, device='cuda')  # 显式初始化CUDA上下文
 
 
 def setup_seed(seed):
@@ -54,6 +56,15 @@ class LSTM(nn.Module):
         # Decode the hidden state of the last time step
         out = self.fc(out[:, -1, :])
         return out
+
+
+def binomial_coeff(alpha: float, j: int) -> float:
+    if j < 0:
+        return 0.0
+    coeff = 1.0
+    for i in range(j):
+        coeff *= (alpha - i) / (i + 1)
+    return coeff
 
 
 def binomial_coeff(alpha: float, j: int) -> float:
@@ -138,35 +149,46 @@ class Fsmm(nn.Module):
         time = out[:, :, 3]
 
         for t in range(seq_len):
-            start_idx = max(0, t - self.window + 1)
-            voltage_window = voltage[:, start_idx : t + 1]  # (batch, window_size)
 
-            pad_size = self.window - (t + 1 - start_idx)
-            padded_voltage = torch.cat(
-                [torch.zeros((batch_size, pad_size), device=device), voltage_window],
-                dim=1,
-            )
+            # 电流时刻的极化电压历史
+            # 取已经计算好的 Up_seq 历史值
+            past_Up = Up_seq[:, 0:t]  # shape (batch, valid_window-1)
+            valid_window = past_Up.shape[1] + 1  # 包括当前时刻
 
-            time_window = time[:, start_idx : t + 1]
-            valid_window = t + 1 - start_idx
-            if valid_window > 1:
+            # 计算 pad_size，且不为负
+            pad_size = max(self.window - valid_window + 1, 0)
+            if pad_size > 0:
+                # 前面补零
+                zeros = torch.zeros((batch_size, pad_size), device=device)
+                history_buffer = torch.cat([zeros, past_Up], dim=1)
+            else:
+                # 已经达到 window 长度，直接使用过去的 Up_seq 切片
+                history_buffer = past_Up[:, -self.window :]
+
+            # time 差分用于计算 T_s^alpha
+            time_window = time[:, 0 : t + 1]
+            if time_window.size(1) > 1:
                 time_diff = (time_window[:, -1] - time_window[:, 0]) / (
-                    valid_window - 1
+                    time_window.size(1) - 1
                 )
             else:
                 time_diff = torch.ones(batch_size, device=device)
+            T_s_alpha = time_diff.pow(self.alpha).unsqueeze(-1)
 
-            T_s_alpha = (time_diff**self.alpha).unsqueeze(-1)
-
+            # 分数阶系数 a, b
             a = -T_s_alpha / (self.R1 * self.C1)
-            I_k = out[:, t, 1]
+            I_k = out[:, t, 1]  # 电流
             b = (T_s_alpha / self.C1) * I_k.unsqueeze(-1)
 
+            # 计算分数阶历史累加项
+            # binom_coeffs[1:self.window+1] 长度为 window
             history_sum = torch.einsum(
-                "bw,w->b", padded_voltage, self.binom_coeffs[1 : self.window + 1]
+                "bw,w->b", history_buffer, self.binom_coeffs[1 : self.window + 1]
             ).unsqueeze(-1)
 
+            # 当前电压
             current_voltage = voltage[:, t].unsqueeze(-1)
+            # 更新 Up_seq
             Up_seq[:, t] = (a * current_voltage + b - history_sum).squeeze()
 
         return Up_seq
@@ -242,14 +264,14 @@ model_mlp = LSTM(input_size,hidden_size,num_layers,1,gaussian_noise=0.0)
 
 save_dir = 'pinn_fdiff/picture'
 save_dir = os.path.join(save_dir)
-model = torch.load("pinn_fdiff/pinn_lstm_saves -10 US06/model_pinn.pt", weights_only=False).to(
+model = torch.load("pinn_fdiff/pinn_lstm_saves/model_pinn.pt", weights_only=False).to(
     device
 )
 model_mlp = torch.load(
-    "pinn_fdiff/pinn_lstm_saves -10 US06/model_lstm.pt", weights_only=False
+    "pinn_fdiff/pinn_lstm_saves/model_lstm.pt", weights_only=False
 ).to(device)
 validation_dataset = MatDNNDataset(
-    "data/Panasonic 18650PF Data/-10degC/Drive Cycles/06-07-17_08.39 n10degC_US06_Pan18650PF.mat",
+    "data/Panasonic 18650PF Data/0degC/Drive cycles/06-02-17_10.43 0degC_HWFET_Pan18650PF.mat",
     sequence_length,
 )
 
@@ -275,13 +297,13 @@ y_fsmm,y_mlp = np.array(y_fsmm),np.array(y_mlp)
 
 fig,axes = plt.subplots(1,1,figsize=(28,20))
 axes.plot(a,soc,color='b',label='Acture SOC')
-axes.plot(a,y_fsmm,color='g',label='LSTM')
-axes.plot(a,y_mlp,color='r',label='LSTM+PINN')
+axes.plot(a,y_fsmm,color='g',label='LSTM+PINN')
+axes.plot(a,y_mlp,color='r',label='LSTM')
 axes.legend()
 plt.ylabel('SOC')
 plt.xlabel('Time (s) T=0°C')
 plt.savefig(
-    os.path.join(save_dir, "soc_pred_-10deg US06_lstm.jpg"),
+    os.path.join(save_dir, "soc_pred_0deg HWEFT_lstm.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
@@ -289,20 +311,20 @@ plt.savefig(
 
 loss_fsmm,loss_mlp = np.array(loss_fsmm),np.array(loss_mlp)
 fig,axes = plt.subplots(1,1,figsize=(28,20))
-axes.plot(a,loss_fsmm,color='g',label='LSTM')
-axes.plot(a,loss_mlp,color='r',label='LSTM+PINN')
+axes.plot(a,loss_fsmm,color='g',label='LSTM+PINN')
+axes.plot(a,loss_mlp,color='r',label='LSTM')
 axes.legend()
 plt.ylabel('SOC error')
 plt.xlabel('Time (s) T=0°C')
 
 plt.savefig(
-    os.path.join(save_dir, "soc_error_-10deg US06_lstm.jpg"),
+    os.path.join(save_dir, "soc_error_0deg HWEFT_lstm.jpg"),
     bbox_inches="tight",
     pad_inches=0,
 )
 
-np.save("pinn_fdiff/picture/US06_SOC_-10.npy", soc)
-np.save("pinn_fdiff/picture/PINN_LSTM_US06_SOC_-10.npy", y_fsmm)
-np.save("pinn_fdiff/picture/LSTM_US06_SOC_-10.npy", y_mlp)
-np.save("pinn_fdiff/picture/LOSS_PINN_LSTM_US06_SOC_-10.npy", loss_fsmm)
-np.save("pinn_fdiff/picture/LOSS_LSTM_US06_SOC_-10.npy", loss_mlp)
+np.save("pinn_fdiff/picture/HWEFT_SOC_0.npy", soc)
+np.save("pinn_fdiff/picture/PINN_LSTM_HWEFT_SOC_0.npy", y_fsmm)
+np.save("pinn_fdiff/picture/LSTM_HWEFT_SOC_0.npy", y_mlp)
+np.save("pinn_fdiff/picture/LOSS_PINN_LSTM_HWEFT_SOC_0.npy", loss_fsmm)
+np.save("pinn_fdiff/picture/LOSS_LSTM_HWEFT_SOC_0.npy", loss_mlp)

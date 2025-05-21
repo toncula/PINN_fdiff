@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import matplotlib as mpl
-mpl.use('TkAgg')
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 import  time
@@ -139,23 +139,26 @@ class Fsmm(nn.Module):
         time = out[:, :, 3]
 
         for t in range(seq_len):
-            start_idx = max(0, t - self.window + 1)
-            voltage_window = voltage[:, start_idx : t + 1]  # (batch, window_size)
+            
+            past_Up = Up_seq[:,0:t]  # (batch, window_size)
+            valid_window = past_Up.shape[1] + 1
+            pad_size = max(self.window - valid_window + 1, 0)
 
-            pad_size = self.window - (t + 1 - start_idx)
-            padded_voltage = torch.cat(
-                [torch.zeros((batch_size, pad_size), device=device), voltage_window],
-                dim=1,
-            )
 
-            time_window = time[:, start_idx : t + 1]
-            valid_window = t + 1 - start_idx
-            if valid_window > 1:
+            time_window = time[:, 0 : t + 1]
+            if time_window.size(1) > 1:
                 time_diff = (time_window[:, -1] - time_window[:, 0]) / (
-                    valid_window - 1
+                    time_window.size(1) - 1
                 )
             else:
                 time_diff = torch.ones(batch_size, device=device)
+            if pad_size > 0:
+                # 前面补零
+                zeros = torch.zeros((batch_size, pad_size), device=device)
+                history_buffer = torch.cat([zeros, past_Up], dim=1)
+            else:
+                # 已经达到 window 长度，直接使用过去的 Up_seq 切片
+                history_buffer = past_Up[:, -self.window :]
 
             T_s_alpha = (time_diff**self.alpha).unsqueeze(-1)
 
@@ -164,7 +167,7 @@ class Fsmm(nn.Module):
             b = (T_s_alpha / self.C1) * I_k.unsqueeze(-1)
 
             history_sum = torch.einsum(
-                "bw,w->b", padded_voltage, self.binom_coeffs[1 : self.window + 1]
+                "bw,w->b", history_buffer, self.binom_coeffs[1 : self.window + 1]
             ).unsqueeze(-1)
 
             current_voltage = voltage[:, t].unsqueeze(-1)
@@ -255,7 +258,7 @@ if not os.path.exists(save_dir):
      os.mkdir(save_dir)
 
 
-dataset_dir = "data/Panasonic 18650PF Data/-10degC/Drive cycles/"
+dataset_dir = "data/Panasonic 18650PF Data/-10degC/Drive Cycles/"
 train_files = [
                "06-10-17_11.25 n10degC_Cycle_1_Pan18650PF.mat",
                "06-10-17_18.35 n10degC_Cycle_2_Pan18650PF.mat",

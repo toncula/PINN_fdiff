@@ -148,7 +148,7 @@ if not os.path.exists(save_dir):
      os.mkdir(save_dir)
 
 
-dataset_dir = "data/Panasonic 18650PF Data/-10degC/Drive cycles/"
+dataset_dir = "data/Panasonic 18650PF Data/-10degC/Drive Cycles/"
 train_files = [
                "06-10-17_11.25 n10degC_Cycle_1_Pan18650PF.mat",
                "06-10-17_18.35 n10degC_Cycle_2_Pan18650PF.mat",
